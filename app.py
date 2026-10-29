@@ -2,6 +2,8 @@
 import streamlit as st
 import pandas as pd
 import joblib
+import plotly.express as px
+import plotly.graph_objects as go
 
 st.set_page_config(
     page_title="Student Early Warning System",
@@ -213,15 +215,160 @@ if uploaded_file is not None:
             mime="text/csv"
         )
 
-        st.subheader("5. Grade Prediction Distribution")
 
-        st.bar_chart(
-            results["Support_Label"].value_counts()
-            .reindex(
-                ["High Priority", "Needs Attention", "On Track"],
-                fill_value=0
-            )
+        st.subheader("5. Class Performance Analytics")
+
+        # Prepare category counts in a fixed order
+        category_order = [
+            "High Priority",
+            "Needs Attention",
+            "On Track"
+        ]
+
+        counts = (
+            results["Support_Label"]
+            .value_counts()
+            .reindex(category_order, fill_value=0)
         )
+
+        total = len(results)
+
+        # KPI cards
+        st.markdown("### Student Support Overview")
+
+        c1, c2, c3, c4 = st.columns(4)
+
+        c1.metric("Total Students", total)
+        c2.metric(
+            "High Priority",
+            int(counts["High Priority"]),
+            f"{counts['High Priority'] / total:.0%} of class"
+        )
+        c3.metric(
+            "Needs Attention",
+            int(counts["Needs Attention"]),
+            f"{counts['Needs Attention'] / total:.0%} of class"
+        )
+        c4.metric(
+            "On Track",
+            int(counts["On Track"]),
+            f"{counts['On Track'] / total:.0%} of class"
+        )
+
+        # Donut chart
+        st.markdown("### Student Support Distribution")
+
+        chart_data = pd.DataFrame({
+            "Support Category": counts.index,
+            "Students": counts.values
+        })
+
+        fig = px.pie(
+            chart_data,
+            names="Support Category",
+            values="Students",
+            hole=0.58,
+            color="Support Category",
+            color_discrete_map={
+                "High Priority": "#EF4444",
+                "Needs Attention": "#F59E0B",
+                "On Track": "#22C55E"
+            }
+        )
+
+        fig.update_traces(
+            textinfo="label+percent",
+            textposition="outside",
+            hovertemplate="%{label}<br>Students: %{value}<extra></extra>"
+        )
+
+        fig.update_layout(
+            template="plotly_dark",
+            showlegend=False,
+            height=420,
+            margin=dict(t=30, b=30, l=30, r=30),
+            annotations=[dict(
+                text=f"<b>{total}</b><br>Students",
+                x=0.5, y=0.5,
+                font_size=22,
+                showarrow=False
+            )]
+        )
+
+        st.plotly_chart(fig, use_container_width=True)
+
+        # Predicted grade distribution
+        st.markdown("### Predicted Grade Distribution")
+
+        grade_bins = [0, 5, 10, 14, 18, 21]
+        grade_labels = [
+            "0–4",
+            "5–9",
+            "10–13",
+            "14–17",
+            "18–20"
+        ]
+
+        grade_data = results.copy()
+        grade_data["Grade Range"] = pd.cut(
+            grade_data["Predicted_G3"],
+            bins=grade_bins,
+            labels=grade_labels,
+            right=False
+        )
+
+        grade_counts = (
+            grade_data["Grade Range"]
+            .value_counts(sort=False)
+            .reindex(grade_labels, fill_value=0)
+            .rename_axis("Grade Range")
+            .reset_index(name="Students")
+        )
+
+        fig_grades = px.bar(
+            grade_counts,
+            x="Grade Range",
+            y="Students",
+            text="Students",
+            color="Students",
+            color_continuous_scale="Blues"
+        )
+        
+        fig_grades.update_traces(
+            textposition="outside",
+            cliponaxis=False
+        )
+        
+        fig_grades.update_layout(
+            template="plotly_dark",
+            height=380,
+            showlegend=False,
+            coloraxis_showscale=False,
+            xaxis_title="Predicted Final Grade (out of 20)",
+            yaxis_title="Number of Students",
+            margin=dict(t=30, b=30, l=20, r=20)
+        )
+        
+        st.plotly_chart(fig_grades, use_container_width=True)
+        
+        # Priority list for teachers
+        st.markdown("### Students Requiring Attention")
+        
+        priority_results = (
+            results[
+                results["Support_Label"].isin(
+                    ["High Priority", "Needs Attention"]
+                )
+            ]
+            .sort_values("Predicted_G3")
+        )
+        
+        st.dataframe(
+            priority_results,
+            use_container_width=True,
+            hide_index=True
+        )
+
 
     except (ValueError, UnicodeDecodeError, pd.errors.ParserError) as e:
         st.error(f"Could not process the uploaded CSV: {e}")
